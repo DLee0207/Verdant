@@ -1,5 +1,6 @@
 import { Unit, Reading, Tenant, dataStore } from '../data/store.js';
 import { processAllUnits } from '../utils/calculations.js';
+import { normalizeEmissions, calculateCPI, calculateDiscount } from '../utils/calculations.js';
 
 /**
  * Get building overview
@@ -8,35 +9,37 @@ export async function getBuildingOverview(req, res) {
   try {
     const { building_id } = req.params;
     
-    const units = await Unit.find({ buildingId: building_id });
+    // FAST MODE: Direct access to dataStore (no promise overhead)
+    const allUnits = dataStore.units.filter(u => u.buildingId === building_id);
     
-    const totalCO2e = units.reduce((sum, u) => sum + u.currentKgCO2e, 0);
-    const avgCPI = units.length > 0
-      ? units.reduce((sum, u) => sum + u.cpi, 0) / units.length
+    // Filter to only active units (those with data/tenants)
+    const activeUnits = allUnits.filter(u => !u.inactive && u.currentKgCO2e > 0);
+    
+    // Use already-calculated values from active units (much faster than recalculating from readings)
+    const totalCO2e = activeUnits.reduce((sum, u) => sum + (u.currentKgCO2e || 0), 0);
+    const totalBaselineCO2e = activeUnits.reduce((sum, u) => sum + (u.baselineKgCO2e || 0), 0);
+    const avgCPI = activeUnits.length > 0
+      ? activeUnits.reduce((sum, u) => sum + (u.cpi || 0), 0) / activeUnits.length
       : 0;
     
-    // Get most recent month's total from readings
-    const allReadings = await Reading.find({});
-    let startOfMonth;
-    if (allReadings.length > 0) {
-      const mostRecentDate = new Date(Math.max(...allReadings.map(r => new Date(r.date).getTime())));
-      startOfMonth = new Date(mostRecentDate.getFullYear(), mostRecentDate.getMonth(), 1);
-    } else {
-      const now = new Date();
-      startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-    const monthReadings = await Reading.find({
-      unitId: { $in: units.map(u => u.id) },
-      date: { $gte: startOfMonth }
-    });
-    const monthCO2e = monthReadings.reduce((sum, r) => sum + r.emissionsKg, 0);
+    // Use the sum of currentKgCO2e from active units (already calculated for the month)
+    // No need to recalculate from readings - units already have the monthly totals
+    const monthCO2e = totalCO2e;
+    
+    // Calculate percentage vs baseline for the frontend
+    const percentageVsBaseline = totalBaselineCO2e > 0 
+      ? (totalCO2e / totalBaselineCO2e) * 100 
+      : 0;
     
     res.json({
       buildingId: building_id,
-      totalUnits: units.length,
+      totalUnits: allUnits.length, // Total units in building (30)
+      activeUnits: activeUnits.length, // Active units with data (20)
       totalCO2eThisMonth: monthCO2e,
+      totalBaselineCO2e: totalBaselineCO2e,
+      percentageVsBaseline: Math.round(percentageVsBaseline * 10) / 10,
       averageCPI: Math.round(avgCPI * 10) / 10,
-      units: units.map(u => ({
+      units: activeUnits.map(u => ({
         id: u.id,
         cpi: u.cpi,
         currentKgCO2e: u.currentKgCO2e,
@@ -55,18 +58,29 @@ export async function getBuildingOverview(req, res) {
 export async function getAllUnits(req, res) {
   try {
     const { building_id } = req.params;
-    const units = await Unit.find({ buildingId: building_id });
+    
+    // FAST MODE: Direct access to dataStore (no promise overhead)
+    const allUnits = dataStore.units.filter(u => u.buildingId === building_id);
+    
+    // Filter to only active units (those with data/tenants)
+    const units = allUnits.filter(u => !u.inactive && u.currentKgCO2e > 0);
+    
+    // Create tenant lookup map for O(1) access instead of O(n) find for each unit
+    const tenantMap = new Map();
+    dataStore.tenants.forEach(tenant => {
+      tenantMap.set(tenant.unitId, tenant);
+    });
     
     const unitsWithTenants = units.map((unit) => {
-      const tenant = dataStore.tenants.find(t => t.unitId === unit.id);
+      const tenant = tenantMap.get(unit.id);
         const quota = unit.quota || unit.baselineKgCO2e;
         const usageVsQuota = quota > 0 ? (unit.currentKgCO2e / quota) * 100 : 0;
         
         // Determine discount tier
         let discountTier = 'None';
         if (unit.cpi >= 90) discountTier = 'Tier 1 (5%)';
-        else if (unit.cpi >= 75) discountTier = 'Tier 2 (2%)';
-        else if (unit.cpi >= 60) discountTier = 'Tier 3 (0.5%)';
+        else if (unit.cpi >= 70) discountTier = 'Tier 2 (2%)';
+        else if (unit.cpi >= 50) discountTier = 'Tier 3 (0.5%)';
         
         return {
           id: unit.id,
@@ -99,7 +113,8 @@ export async function updateUnitQuota(req, res) {
     const { unit_id } = req.params;
     const { quota, medicalFlag } = req.body;
     
-    const unit = await Unit.findOne({ id: unit_id });
+    // FAST MODE: Direct access to dataStore (no promise overhead)
+    const unit = dataStore.units.find(u => u.id === unit_id);
     if (!unit) {
       return res.status(404).json({ error: 'Unit not found' });
     }
@@ -113,32 +128,41 @@ export async function updateUnitQuota(req, res) {
     
     unit.updatedAt = new Date();
     
-    // Recalculate CPI and discount for all units
-    await processAllUnits(Unit, Reading);
+    // Recalculate CPI and discount instantly using existing emissions data
+    // New algorithm uses raw emissions vs quota (no normalization needed)
+    const unitQuotaForCPI = unit.quota !== null && unit.quota !== undefined ? unit.quota : null;
+    const cpi = calculateCPI(
+      unit.currentKgCO2e, // Use raw emissions
+      unit.baselineKgCO2e,
+      unit.area,
+      unit.occupancy,
+      unit.medicalFlag,
+      unitQuotaForCPI
+    );
     
-    // Get updated unit
-    const updatedUnit = await Unit.findOne({ id: unit_id });
+    const discount = calculateDiscount(cpi);
+    unit.cpi = cpi;
+    unit.discount = discount;
     
-    // Calculate usage vs quota
-    const unitQuota = updatedUnit.quota || updatedUnit.baselineKgCO2e;
-    const usageVsQuota = unitQuota > 0 ? (updatedUnit.currentKgCO2e / unitQuota) * 100 : 0;
+    const unitQuota = unit.quota || unit.baselineKgCO2e;
+    const usageVsQuota = unitQuota > 0 ? (unit.currentKgCO2e / unitQuota) * 100 : 0;
     
     // Determine discount tier
     let discountTier = 'None';
-    if (updatedUnit.cpi >= 90) discountTier = 'Tier 1 (5%)';
-    else if (updatedUnit.cpi >= 75) discountTier = 'Tier 2 (2%)';
-    else if (updatedUnit.cpi >= 60) discountTier = 'Tier 3 (0.5%)';
+    if (unit.cpi >= 90) discountTier = 'Tier 1 (5%)';
+    else if (unit.cpi >= 70) discountTier = 'Tier 2 (2%)';
+    else if (unit.cpi >= 50) discountTier = 'Tier 3 (0.5%)';
     
     res.json({
       success: true,
       unit: {
-        id: updatedUnit.id,
-        quota: updatedUnit.quota,
-        medicalFlag: updatedUnit.medicalFlag,
-        cpi: updatedUnit.cpi,
-        discount: updatedUnit.discount,
-        currentKgCO2e: updatedUnit.currentKgCO2e,
-        baselineKgCO2e: updatedUnit.baselineKgCO2e,
+        id: unit.id,
+        quota: unit.quota,
+        medicalFlag: unit.medicalFlag,
+        cpi: unit.cpi,
+        discount: unit.discount,
+        currentKgCO2e: unit.currentKgCO2e,
+        baselineKgCO2e: unit.baselineKgCO2e,
         usageVsQuota: Math.round(usageVsQuota * 10) / 10,
         discountTier: discountTier
       }
@@ -154,7 +178,9 @@ export async function updateUnitQuota(req, res) {
 export async function exportCSV(req, res) {
   try {
     const { building_id } = req.params;
-    const units = await Unit.find({ buildingId: building_id });
+    
+    // FAST MODE: Direct access to dataStore
+    const units = dataStore.units.filter(u => u.buildingId === building_id);
     
     // Get tenants
     const tenantMap = new Map();
@@ -189,8 +215,8 @@ export async function exportCSV(req, res) {
       
       let discountTier = 'None';
       if (unit.cpi >= 90) discountTier = 'Tier 1 (5%)';
-      else if (unit.cpi >= 75) discountTier = 'Tier 2 (2%)';
-      else if (unit.cpi >= 60) discountTier = 'Tier 3 (0.5%)';
+      else if (unit.cpi >= 70) discountTier = 'Tier 2 (2%)';
+      else if (unit.cpi >= 50) discountTier = 'Tier 3 (0.5%)';
       
       return [
         unit.id,

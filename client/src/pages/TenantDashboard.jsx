@@ -9,7 +9,7 @@ import { cn } from '../lib/utils';
 import { 
   Leaf, DollarSign, BarChart3, Target, TrendingUp, Award, 
   Zap, Lightbulb, Droplets, Home, Activity, Trophy, 
-  Sparkles, ArrowRight, CheckCircle2, AlertCircle
+  Sparkles, ArrowRight, CheckCircle2, AlertCircle, Brain, Loader2
 } from 'lucide-react';
 
 const COLORS = ['#58cc02', '#1cb0f6', '#ce82ff', '#ffc800', '#ff9600'];
@@ -18,13 +18,10 @@ export default function TenantDashboard() {
   const { id } = useParams();
   const [summary, setSummary] = useState(null);
   const [usage, setUsage] = useState(null);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [loadingAiSuggestions, setLoadingAiSuggestions] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tips] = useState([
-    { id: 'tip1', text: 'Lower your thermostat by 2°F to save 5% on heating', category: 'HVAC', xp: 10, icon: Activity },
-    { id: 'tip2', text: 'Switch to LED bulbs to reduce lighting energy by 75%', category: 'Lights', xp: 15, icon: Lightbulb },
-    { id: 'tip3', text: 'Run full loads in dishwasher and washing machine', category: 'Appliances', xp: 10, icon: Home },
-    { id: 'tip4', text: 'Unplug devices when not in use to avoid phantom loads', category: 'Other', xp: 5, icon: Zap }
-  ]);
+  const [completedItems, setCompletedItems] = useState(new Set());
 
   useEffect(() => {
     fetchData();
@@ -39,6 +36,9 @@ export default function TenantDashboard() {
       ]);
       setSummary(summaryRes.data);
       setUsage(usageRes.data);
+      
+      // Fetch AI suggestions after main data loads
+      fetchAISuggestions();
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -46,11 +46,53 @@ export default function TenantDashboard() {
     }
   };
 
-  const handleAcknowledge = async (tipId) => {
+  const fetchAISuggestions = async () => {
     try {
-      await api.post(`/tenant/${id}/acknowledge`, { tipId });
+      setLoadingAiSuggestions(true);
+      const response = await api.get(`/tenant/${id}/ai-suggestions`);
+      console.log('AI Suggestions response:', response.data);
+      setAiSuggestions(response.data.suggestions || []);
     } catch (error) {
-      console.error('Error acknowledging tip:', error);
+      console.error('Error fetching AI suggestions:', error);
+      console.error('Error details:', error.response?.data || error.message);
+      // Don't show error to user, just silently fail (graceful degradation)
+      setAiSuggestions([]);
+    } finally {
+      setLoadingAiSuggestions(false);
+    }
+  };
+
+  const handleAcknowledge = (tipId) => {
+    // Hardcoded: just toggle the completed state locally
+    setCompletedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(tipId)) {
+        newSet.delete(tipId);
+      } else {
+        newSet.add(tipId);
+      }
+      return newSet;
+    });
+  };
+
+  // Map category to icon
+  const getCategoryIcon = (category) => {
+    switch (category) {
+      case 'HVAC': return Activity;
+      case 'Lighting': return Lightbulb;
+      case 'Water': return Droplets;
+      case 'Appliances': return Home;
+      default: return Zap;
+    }
+  };
+
+  // Map difficulty to color
+  const getDifficultyColor = (difficulty) => {
+    switch (difficulty) {
+      case 'Easy': return 'text-green-500';
+      case 'Medium': return 'text-yellow-500';
+      case 'Hard': return 'text-orange-500';
+      default: return 'text-muted-foreground';
     }
   };
 
@@ -116,8 +158,8 @@ export default function TenantDashboard() {
   // Calculate badges
   const badges = [];
   if (summary.cpi >= 90) badges.push({ name: 'Eco Champion', emoji: '🏆', variant: 'verdant' });
-  if (summary.cpi >= 75) badges.push({ name: 'Green Warrior', emoji: '🌿', variant: 'default' });
-  if (summary.cpi >= 60) badges.push({ name: 'Eco Explorer', emoji: '🌍', variant: 'secondary' });
+  if (summary.cpi >= 70 && summary.cpi < 90) badges.push({ name: 'Green Warrior', emoji: '🌿', variant: 'default' });
+  if (summary.cpi >= 50 && summary.cpi < 70) badges.push({ name: 'Eco Explorer', emoji: '🌍', variant: 'secondary' });
   if (streak >= 7) badges.push({ name: 'Week Warrior', emoji: '🔥', variant: 'outline' });
   if (streak >= 30) badges.push({ name: 'Month Master', emoji: '⭐', variant: 'outline' });
   if (isUnderQuota) badges.push({ name: 'Quota Crusher', emoji: '✅', variant: 'verdant' });
@@ -125,8 +167,8 @@ export default function TenantDashboard() {
 
   const getEncouragement = () => {
     if (summary.cpi >= 90) return { text: "Incredible! You're an eco-hero! 🌟", gradient: 'from-duolingo-yellow to-duolingo-orange' };
-    if (summary.cpi >= 75) return { text: "Amazing work! Keep it up! 🎉", gradient: 'from-duolingo-green to-duolingo-blue' };
-    if (summary.cpi >= 60) return { text: "Great progress! You're doing well! 👍", gradient: 'from-duolingo-blue to-duolingo-purple' };
+    if (summary.cpi >= 70) return { text: "Amazing work! Keep it up! 🎉", gradient: 'from-duolingo-green to-duolingo-blue' };
+    if (summary.cpi >= 50) return { text: "Great progress! You're doing well! 👍", gradient: 'from-duolingo-blue to-duolingo-purple' };
     return { text: "You've got this! Every step counts! 💪", gradient: 'from-duolingo-orange to-duolingo-red' };
   };
 
@@ -265,8 +307,8 @@ export default function TenantDashboard() {
             <CardContent className="p-8 pt-0">
               <p className="text-base font-medium text-muted-foreground">
                 {summary.cpi >= 90 ? 'Tier 1 - Maximum discount' :
-                 summary.cpi >= 75 ? 'Tier 2 - Great performance' :
-                 summary.cpi >= 60 ? 'Tier 3 - Good progress' :
+                 summary.cpi >= 70 ? 'Tier 2 - Great performance' :
+                 summary.cpi >= 50 ? 'Tier 3 - Good progress' :
                  'No discount - Continue improving'}
               </p>
             </CardContent>
@@ -307,17 +349,17 @@ export default function TenantDashboard() {
             <div className="grid md:grid-cols-4 gap-4">
               {/* Tier 1 - Gold */}
               <div className={cn(
-                "p-6 rounded-xl border-2 transition-all hover:bg-black/20",
+                "p-6 rounded-xl border-2 transition-all bg-[#1e4d3e] hover:bg-gray-800/80",
                 summary.cpi >= 90 
-                  ? "border-[#FFD700] bg-gradient-to-br from-[#FFD700]/20 to-[#FFA500]/10 shadow-lg shadow-[#FFD700]/20" 
-                  : "border-[#FFD700]/30 bg-[#FFD700]/5"
+                  ? "border-[#FFD700] shadow-lg shadow-[#FFD700]/20" 
+                  : "border-[#FFD700]/30"
               )}>
                 <div className="flex items-center gap-2 mb-4">
                   <Trophy className={cn("w-6 h-6", summary.cpi >= 90 ? "text-[#FFD700]" : "text-[#FFD700]/60")} />
                   <h4 className={cn("font-bold text-lg", summary.cpi >= 90 ? "text-[#FFD700]" : "text-[#FFD700]/80")}>Tier 1</h4>
                 </div>
                 <p className={cn("text-5xl font-black mb-3 leading-none", summary.cpi >= 90 ? "text-[#FFD700]" : "text-[#FFD700]/70")}>5%</p>
-                <p className="text-sm font-medium text-muted-foreground mb-4">CPI ≥ 90</p>
+                <p className="text-sm font-medium text-muted-foreground mb-4">CPI 100-90</p>
                 {summary.cpi >= 90 && (
                   <Badge className="text-sm bg-[#FFD700] text-black font-semibold border-[#FFD700]">Current Tier</Badge>
                 )}
@@ -325,45 +367,45 @@ export default function TenantDashboard() {
               
               {/* Tier 2 - Silver */}
               <div className={cn(
-                "p-6 rounded-xl border-2 transition-all hover:bg-black/20",
-                summary.cpi >= 75 && summary.cpi < 90
-                  ? "border-[#E8E8E8] bg-gradient-to-br from-[#E8E8E8]/30 to-[#C0C0C0]/15 shadow-xl shadow-[#E8E8E8]/30" 
-                  : "border-[#C0C0C0] bg-gradient-to-br from-[#C0C0C0]/15 to-[#A8A8A8]/8"
+                "p-6 rounded-xl border-2 transition-all bg-[#1e4d3e] hover:bg-gray-800/80",
+                summary.cpi >= 70 && summary.cpi < 90
+                  ? "border-[#E8E8E8] shadow-xl shadow-[#E8E8E8]/30" 
+                  : "border-[#C0C0C0]"
               )}>
                 <div className="flex items-center gap-2 mb-4">
-                  <Leaf className={cn("w-6 h-6", summary.cpi >= 75 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")} />
-                  <h4 className={cn("font-bold text-lg", summary.cpi >= 75 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")}>Tier 2</h4>
+                  <Leaf className={cn("w-6 h-6", summary.cpi >= 70 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")} />
+                  <h4 className={cn("font-bold text-lg", summary.cpi >= 70 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")}>Tier 2</h4>
                 </div>
-                <p className={cn("text-5xl font-black mb-3 leading-none", summary.cpi >= 75 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")}>2%</p>
-                <p className="text-sm font-medium text-muted-foreground mb-4">CPI ≥ 75</p>
-                {summary.cpi >= 75 && summary.cpi < 90 && (
+                <p className={cn("text-5xl font-black mb-3 leading-none", summary.cpi >= 70 && summary.cpi < 90 ? "text-[#E8E8E8]" : "text-[#C0C0C0]")}>2%</p>
+                <p className="text-sm font-medium text-muted-foreground mb-4">CPI 90-70</p>
+                {summary.cpi >= 70 && summary.cpi < 90 && (
                   <Badge className="text-sm bg-[#E8E8E8] text-black font-semibold border-[#E8E8E8] shadow-md">Current Tier</Badge>
                 )}
               </div>
               
               {/* Tier 3 - Bronze */}
               <div className={cn(
-                "p-6 rounded-xl border-2 transition-all hover:bg-black/20",
-                summary.cpi >= 60 && summary.cpi < 75
-                  ? "border-[#D4A574] bg-gradient-to-br from-[#D4A574]/30 to-[#CD7F32]/15 shadow-xl shadow-[#D4A574]/30" 
-                  : "border-[#CD7F32] bg-gradient-to-br from-[#CD7F32]/15 to-[#B87333]/8"
+                "p-6 rounded-xl border-2 transition-all bg-[#1e4d3e] hover:bg-gray-800/80",
+                summary.cpi >= 50 && summary.cpi < 70
+                  ? "border-[#D4A574] shadow-xl shadow-[#D4A574]/30" 
+                  : "border-[#CD7F32]"
               )}>
                 <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className={cn("w-6 h-6", summary.cpi >= 60 && summary.cpi < 75 ? "text-[#D4A574]" : "text-[#CD7F32]")} />
-                  <h4 className={cn("font-bold text-lg", summary.cpi >= 60 && summary.cpi < 75 ? "text-[#D4A574]" : "text-[#CD7F32]")}>Tier 3</h4>
+                  <TrendingUp className={cn("w-6 h-6", summary.cpi >= 50 && summary.cpi < 70 ? "text-[#D4A574]" : "text-[#CD7F32]")} />
+                  <h4 className={cn("font-bold text-lg", summary.cpi >= 50 && summary.cpi < 70 ? "text-[#D4A574]" : "text-[#CD7F32]")}>Tier 3</h4>
                 </div>
-                <p className={cn("text-5xl font-black mb-3 leading-none", summary.cpi >= 60 && summary.cpi < 75 ? "text-[#D4A574]" : "text-[#CD7F32]")}>0.5%</p>
-                <p className="text-sm font-medium text-muted-foreground mb-4">CPI ≥ 60</p>
-                {summary.cpi >= 60 && summary.cpi < 75 && (
+                <p className={cn("text-5xl font-black mb-3 leading-none", summary.cpi >= 50 && summary.cpi < 70 ? "text-[#D4A574]" : "text-[#CD7F32]")}>0.5%</p>
+                <p className="text-sm font-medium text-muted-foreground mb-4">CPI 70-50</p>
+                {summary.cpi >= 50 && summary.cpi < 70 && (
                   <Badge className="text-sm bg-[#D4A574] text-white font-semibold border-[#D4A574] shadow-md">Current Tier</Badge>
                 )}
               </div>
               
               {/* No Discount */}
               <div className={cn(
-                "p-6 rounded-xl border-2 transition-all hover:bg-black/20",
-                summary.cpi < 60
-                  ? "border-muted-foreground/40 bg-muted/20 shadow-md" 
+                "p-6 rounded-xl border-2 transition-all bg-[#1e4d3e] hover:bg-gray-800/80",
+                summary.cpi < 50
+                  ? "border-muted-foreground/40 shadow-md" 
                   : "border-border/40"
               )}>
                 <div className="flex items-center gap-2 mb-4">
@@ -371,9 +413,9 @@ export default function TenantDashboard() {
                   <h4 className="font-bold text-lg">No Discount</h4>
                 </div>
                 <p className="text-5xl font-black text-muted-foreground mb-3 leading-none">0%</p>
-                <p className="text-sm font-medium text-muted-foreground mb-4">CPI &lt; 60</p>
-                {summary.cpi < 60 && (
-                  <Badge variant="outline" className="text-sm">Current</Badge>
+                <p className="text-sm font-medium text-muted-foreground mb-4">CPI &lt; 50</p>
+                {summary.cpi < 50 && (
+                  <Badge variant="outline" className="text-sm bg-gray-200 text-gray-800 border-gray-400">Current</Badge>
                 )}
               </div>
             </div>
@@ -386,15 +428,15 @@ export default function TenantDashboard() {
                   </div>
                   <div className="flex-1">
                     <p className="text-base font-bold mb-2 text-foreground">Next Goal</p>
-                    {summary.cpi < 60 ? (
+                    {summary.cpi < 50 ? (
                       <p className="text-sm text-muted-foreground leading-relaxed">
-                        Reach <span className="font-bold text-foreground">CPI 60</span> to unlock Tier 3 (0.5% discount). 
-                        You need <span className="font-bold text-primary">{60 - summary.cpi}</span> more points.
+                        Reach <span className="font-bold text-foreground">CPI 50</span> to unlock Tier 3 (0.5% discount). 
+                        You need <span className="font-bold text-primary">{50 - summary.cpi}</span> more points.
                       </p>
-                    ) : summary.cpi < 75 ? (
+                    ) : summary.cpi < 70 ? (
                       <p className="text-sm text-muted-foreground leading-relaxed">
-                        Reach <span className="font-bold text-foreground">CPI 75</span> to unlock Tier 2 (2% discount). 
-                        You need <span className="font-bold text-primary">{75 - summary.cpi}</span> more points.
+                        Reach <span className="font-bold text-foreground">CPI 70</span> to unlock Tier 2 (2% discount). 
+                        You need <span className="font-bold text-primary">{70 - summary.cpi}</span> more points.
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground leading-relaxed">
@@ -428,7 +470,9 @@ export default function TenantDashboard() {
                 <div className="mt-3 p-3 bg-muted/30 rounded-lg border border-border/40">
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     <span className="font-semibold text-foreground">Quota</span> is your monthly target limit set by your landlord. 
-                    <span className="font-semibold text-foreground"> Baseline</span> is the historical average used to calculate your Eco Score (CPI).
+                    <span className="font-semibold text-foreground"> Baseline</span> is the historical average. 
+                    Your <span className="font-semibold text-foreground">Eco Score (CPI)</span> is calculated based on your usage vs quota: 
+                    using 50% or less of quota = 100 CPI, then decreases by 2 points for each 1% over 50%.
                   </p>
                 </div>
               </div>
@@ -628,57 +672,155 @@ export default function TenantDashboard() {
           </CardContent>
         </Card>
 
-        {/* Daily Challenges */}
-        <Card className="border-0 shadow-xl animate-slide-up">
-          <CardHeader className="p-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <Lightbulb className="w-6 h-6 text-primary" />
+        {/* AI-Powered Suggestions */}
+        {aiSuggestions.length > 0 && (
+          <Card className="border-0 shadow-xl animate-slide-up">
+            <CardHeader className="p-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-blue-500/20">
+                  <Brain className="w-6 h-6 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-2xl font-bold" style={{
+                    background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text'
+                  }}>
+                    AI-Powered Suggestions
+                  </CardTitle>
+                  <CardDescription className="text-sm mt-1">Personalized recommendations based on your usage</CardDescription>
+                </div>
               </div>
-              <div>
-                <CardTitle className="text-2xl font-bold">Energy Saving Tips</CardTitle>
-                <CardDescription className="text-sm mt-1">Complete these to earn bonus XP</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-6 pt-0">
-            <div className="space-y-3">
-              {tips.map((tip) => {
-                const IconComponent = tip.icon;
-                return (
-                <Card key={tip.id} className="border shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300">
-                  <CardContent className="p-5">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="p-2.5 rounded-lg bg-primary/10">
-                            <IconComponent className="w-5 h-5 text-primary" />
+            </CardHeader>
+            <CardContent className="p-6 pt-0">
+              <div className="space-y-3">
+                {aiSuggestions.map((suggestion) => {
+                  const IconComponent = getCategoryIcon(suggestion.category);
+                  return (
+                    <Card key={suggestion.id} className="border shadow-sm hover:shadow-md hover:border-purple-500/30 transition-all duration-300 bg-gradient-to-r from-purple-500/5 to-transparent">
+                      <CardContent className="p-5">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-3 flex-wrap">
+                              <div className="p-2.5 rounded-lg bg-purple-500/10">
+                                <IconComponent className="w-5 h-5 text-purple-400" />
+                              </div>
+                              <Badge variant="outline" className="text-xs font-medium bg-gray-200 text-gray-800 border-gray-400">
+                                {suggestion.category}
+                              </Badge>
+                              <Badge variant="verdant" className="text-xs font-semibold">
+                                +{suggestion.xp} XP
+                              </Badge>
+                              {suggestion.impact > 0 && (
+                                <Badge variant="outline" className="text-xs font-medium text-green-500 border-green-500/30">
+                                  Save ~{suggestion.impact.toFixed(1)} kg CO₂e/month
+                                </Badge>
+                              )}
+                              <span className={`text-xs font-semibold ${getDifficultyColor(suggestion.difficulty)}`}>
+                                {suggestion.difficulty}
+                              </span>
+                            </div>
+                            <h4 className="text-base font-bold text-foreground mb-2">{suggestion.title}</h4>
+                            <p className="text-sm text-muted-foreground leading-relaxed">{suggestion.description}</p>
                           </div>
-                          <Badge variant="outline" className="text-xs font-medium">
-                            {tip.category}
-                          </Badge>
-                          <Badge variant="verdant" className="text-xs font-semibold">
-                            +{tip.xp} XP
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-foreground font-medium leading-relaxed">{tip.text}</p>
-                      </div>
                       <Button
-                        onClick={() => handleAcknowledge(tip.id)}
-                        variant="outline"
+                        onClick={() => handleAcknowledge(suggestion.id)}
+                        variant={completedItems.has(suggestion.id) ? "verdant" : "outline"}
                         size="sm"
-                        className="text-xs font-semibold shrink-0"
+                        className={cn(
+                          "text-xs font-semibold shrink-0 text-gray-800 bg-white",
+                          completedItems.has(suggestion.id) && "bg-gradient-to-r from-duolingo-green to-duolingo-blue text-white"
+                        )}
+                        disabled={completedItems.has(suggestion.id)}
                       >
-                        Mark Complete
+                        {completedItems.has(suggestion.id) ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 mr-1" />
+                            Complete
+                          </>
+                        ) : (
+                          "Mark Complete"
+                        )}
                       </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loading AI Suggestions */}
+        {loadingAiSuggestions && (
+          <Card className="border-0 shadow-xl animate-slide-up">
+            <CardHeader className="p-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-blue-500/20">
+                  <Brain className="w-6 h-6 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-2xl font-bold" style={{
+                    background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text'
+                  }}>
+                    AI-Powered Suggestions
+                  </CardTitle>
+                  <CardDescription className="text-sm mt-1">Generating personalized recommendations...</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6 pt-0">
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Debug: Show if AI suggestions failed to load */}
+        {!loadingAiSuggestions && aiSuggestions.length === 0 && !loading && (
+          <Card className="border-0 shadow-xl animate-slide-up border-yellow-500/30">
+            <CardHeader className="p-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-blue-500/20">
+                  <Brain className="w-6 h-6 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-2xl font-bold" style={{
+                    background: 'linear-gradient(135deg, #a855f7 0%, #3b82f6 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text'
+                  }}>
+                    AI-Powered Suggestions
+                  </CardTitle>
+                  <CardDescription className="text-sm mt-1">AI suggestions unavailable</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6 pt-0">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  AI suggestions are temporarily unavailable. This could be due to:
+                </p>
+                <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1 ml-2">
+                  <li>OpenAI API quota exceeded (check your billing)</li>
+                  <li>API key not configured or invalid</li>
+                  <li>Network connectivity issues</li>
+                </ul>
+                <p className="text-xs text-muted-foreground/70 mt-3">
+                  Check the server console for detailed error messages. The app will continue to work without AI suggestions.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
       </div>
     </div>
   );

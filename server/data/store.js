@@ -5,19 +5,21 @@ export const dataStore = {
   readings: []
 };
 
-// Helper functions to mimic MongoDB queries
+// Helper functions to mimic MongoDB queries (optimized for speed)
 export const Unit = {
-  find: async (query = {}) => {
-    let results = [...dataStore.units];
+  find: (query = {}) => {
+    // FAST MODE: Synchronous operation
+    let results = dataStore.units;
     
     if (query.buildingId) {
       results = results.filter(u => u.buildingId === query.buildingId);
     }
     
-    return results;
+    return Promise.resolve(results);
   },
   
   findOne: (query) => {
+    // FAST MODE: Synchronous operation
     if (query.id) {
       const result = dataStore.units.find(u => u.id === query.id);
       return Promise.resolve(result || null);
@@ -36,8 +38,9 @@ export const Unit = {
 };
 
 export const Tenant = {
-  find: async (query = {}) => {
-    let results = [...dataStore.tenants];
+  find: (query = {}) => {
+    // FAST MODE: Synchronous operation
+    let results = dataStore.tenants;
     
     if (query.unitId) {
       if (query.unitId.$in) {
@@ -47,10 +50,11 @@ export const Tenant = {
       }
     }
     
-    return results;
+    return Promise.resolve(results);
   },
   
   findOne: (query) => {
+    // FAST MODE: Synchronous operation
     if (query.id) {
       const result = dataStore.tenants.find(t => t.id === query.id);
       return Promise.resolve(result || null);
@@ -69,8 +73,9 @@ export const Tenant = {
 };
 
 export const Reading = {
-  find: async (query = {}) => {
-    let results = [...dataStore.readings];
+  find: (query = {}) => {
+    // FAST MODE: Synchronous operation (though we don't use readings in fast mode)
+    let results = dataStore.readings;
     
     if (query.unitId) {
       if (query.unitId.$in) {
@@ -84,7 +89,7 @@ export const Reading = {
       results = results.filter(r => new Date(r.date) >= query.date.$gte);
     }
     
-    return results;
+    return Promise.resolve(results);
   },
   
   deleteMany: () => {

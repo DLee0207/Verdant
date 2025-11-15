@@ -117,7 +117,9 @@ export default function LandlordDashboard() {
   // Count-up animations
   const animatedCO2 = useCountUp(overview?.totalCO2eThisMonth, 2000);
   const animatedCPI = useCountUp(overview?.averageCPI, 2000);
-  const animatedUnits = useCountUp(overview?.totalUnits, 1500);
+  const animatedUnits = useCountUp(overview?.activeUnits || overview?.totalUnits, 1500);
+  const totalUnits = overview?.totalUnits || 30;
+  const activeUnits = overview?.activeUnits || overview?.totalUnits || 20;
 
   useEffect(() => {
     fetchData();
@@ -166,8 +168,7 @@ export default function LandlordDashboard() {
       setEditingUnit(null);
       setQuotaValue('');
       
-      // Also refresh all data to ensure consistency
-      fetchData();
+      // No need to refetch all data - we already updated the state immediately
     } catch (error) {
       console.error('Error updating quota:', error);
       alert('Error updating quota: ' + error.message);
@@ -237,11 +238,18 @@ export default function LandlordDashboard() {
     return 'outline';
   };
 
+  const getDiscountTierClassName = (tier) => {
+    if (tier.includes('Tier 1')) return ''; // verdant variant is fine
+    if (tier.includes('Tier 2')) return ''; // default variant is fine
+    if (tier.includes('Tier 3')) return 'bg-gray-200 text-gray-800'; // Fix secondary variant
+    return 'bg-gray-200 text-gray-800 border-gray-400'; // Fix outline variant
+  };
+
   const getCPIColor = (cpi) => {
-    if (cpi >= 90) return 'text-primary';
-    if (cpi >= 75) return 'text-duolingo-blue';
-    if (cpi >= 60) return 'text-duolingo-yellow';
-    return 'text-destructive';
+    if (cpi >= 90) return 'text-primary';      // Tier 1: 100-90
+    if (cpi >= 70) return 'text-duolingo-blue'; // Tier 2: 90-70
+    if (cpi >= 50) return 'text-duolingo-yellow'; // Tier 3: 70-50
+    return 'text-destructive';                  // No discount: < 50
   };
 
   const toggleUnit = (unitId) => {
@@ -378,7 +386,7 @@ export default function LandlordDashboard() {
                   </div>
                 </div>
                 <CircularProgress 
-                  value={Math.min((overview.totalCO2eThisMonth / 1000) * 100, 100)} 
+                  value={Math.min(overview.percentageVsBaseline || 0, 100)} 
                   max={100} 
                   size={90} 
                   strokeWidth={8}
@@ -386,7 +394,7 @@ export default function LandlordDashboard() {
                 >
                   <div className="text-center">
                     <div className="text-xs font-bold text-[#ff6b6b]">
-                      {Math.round((overview.totalCO2eThisMonth / 1000) * 100)}%
+                      {Math.round(overview.percentageVsBaseline || 0)}%
                     </div>
                   </div>
                 </CircularProgress>
@@ -460,12 +468,12 @@ export default function LandlordDashboard() {
                       Total Units
                     </CardDescription>
                     <CardTitle className="text-5xl font-black bg-gradient-to-r from-[#ce82ff] to-[#e0a5ff] bg-clip-text text-transparent">
-                      {Math.round(animatedUnits)}
+                      {activeUnits}/{totalUnits}
                     </CardTitle>
                   </div>
                 </div>
                 <CircularProgress 
-                  value={(overview.totalUnits / 20) * 100} 
+                  value={(activeUnits / totalUnits) * 100} 
                   max={100} 
                   size={90} 
                   strokeWidth={8}
@@ -473,7 +481,7 @@ export default function LandlordDashboard() {
                 >
                   <div className="text-center">
                     <div className="text-xs font-bold text-[#ce82ff]">
-                      {overview.totalUnits}
+                      {activeUnits}
                     </div>
                   </div>
                 </CircularProgress>
@@ -484,7 +492,7 @@ export default function LandlordDashboard() {
                 <p className="text-xs text-muted-foreground font-medium">Active units</p>
                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Home className="w-3 h-3" />
-                  <span>All active</span>
+                  <span>{activeUnits} of {totalUnits} active</span>
                 </div>
               </div>
             </CardContent>
@@ -526,7 +534,10 @@ export default function LandlordDashboard() {
                         </div>
                         
                         <div className="hidden md:block">
-                          <Badge variant={unit.buildingType === 'Commercial' ? 'default' : 'secondary'}>
+                          <Badge 
+                            variant={unit.buildingType === 'Commercial' ? 'default' : 'secondary'}
+                            className={unit.buildingType === 'Residential' ? 'bg-gray-200 text-gray-800' : ''}
+                          >
                             {unit.buildingType || 'Residential'}
                           </Badge>
                         </div>
@@ -555,7 +566,10 @@ export default function LandlordDashboard() {
                         
                         <div className="hidden md:block">
                           <p className="text-xs text-muted-foreground mb-1">Discount</p>
-                          <Badge variant={getDiscountTierVariant(unit.discountTier)}>
+                          <Badge 
+                            variant={getDiscountTierVariant(unit.discountTier)}
+                            className={getDiscountTierClassName(unit.discountTier)}
+                          >
                             {unit.discountTier}
                           </Badge>
                         </div>
@@ -570,7 +584,10 @@ export default function LandlordDashboard() {
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground mb-1">Discount</p>
-                            <Badge variant={getDiscountTierVariant(unit.discountTier)}>
+                            <Badge 
+                              variant={getDiscountTierVariant(unit.discountTier)}
+                              className={getDiscountTierClassName(unit.discountTier)}
+                            >
                               {unit.discountTier}
                             </Badge>
                           </div>
@@ -589,7 +606,10 @@ export default function LandlordDashboard() {
                               <div className="space-y-3">
                                 <div className="flex justify-between items-center">
                                   <span className="text-sm text-muted-foreground">Building Type:</span>
-                                  <Badge variant={unit.buildingType === 'Commercial' ? 'default' : 'secondary'}>
+                                  <Badge 
+                                    variant={unit.buildingType === 'Commercial' ? 'default' : 'secondary'}
+                                    className={unit.buildingType === 'Residential' ? 'bg-gray-200 text-gray-800' : ''}
+                                  >
                                     {unit.buildingType || 'Residential'}
                                   </Badge>
                                 </div>
@@ -606,7 +626,7 @@ export default function LandlordDashboard() {
                                   <div className="flex items-center gap-2">
                                     <span className="text-sm font-medium text-foreground">{unit.occupancy}</span>
                                     {unit.medicalFlag && (
-                                      <Badge variant="outline">Medical</Badge>
+                                      <Badge variant="outline" className="bg-gray-200 text-gray-800 border-gray-400">Medical</Badge>
                                     )}
                                   </div>
                                 </div>
@@ -628,7 +648,10 @@ export default function LandlordDashboard() {
                                 </div>
                                 <div className="flex justify-between items-center">
                                   <span className="text-sm text-muted-foreground">Discount Tier:</span>
-                                  <Badge variant={getDiscountTierVariant(unit.discountTier)}>
+                                  <Badge 
+                                    variant={getDiscountTierVariant(unit.discountTier)}
+                                    className={getDiscountTierClassName(unit.discountTier)}
+                                  >
                                     {unit.discountTier}
                                   </Badge>
                                 </div>
@@ -672,7 +695,7 @@ export default function LandlordDashboard() {
                             </div>
                             
                             <div>
-                              <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Actions</p>
+                              <p className="text-xs font-semibold text-foreground mb-3 uppercase tracking-wider">Actions</p>
                               {editingUnit === unit.id ? (
                                 <div className="flex flex-col gap-3">
                                   <input
@@ -699,9 +722,9 @@ export default function LandlordDashboard() {
                                       }}
                                       variant="outline"
                                       size="sm"
-                                      className="flex-1"
+                                      className="flex-1 text-gray-800 bg-white"
                                     >
-                                      <X className="w-4 h-4 mr-1" />
+                                      <X className="w-4 h-4 mr-1 text-gray-800" />
                                       Cancel
                                     </Button>
                                   </div>
@@ -715,9 +738,9 @@ export default function LandlordDashboard() {
                                   }}
                                   variant="outline"
                                   size="sm"
-                                  className="w-full"
+                                  className="w-full text-gray-800 bg-white"
                                 >
-                                  <Edit className="w-4 h-4 mr-2" />
+                                  <Edit className="w-4 h-4 mr-2 text-gray-800" />
                                   Edit Quota
                                 </Button>
                               )}
