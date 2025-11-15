@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 95%; /* Off-white text */
+    --card: 0 0% 20%; /* Dark card background for off-white text contrast */
+    --card-foreground: 0 0% 95%; /* Off-white text on cards */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 95%; /* Off-white text */
+    --primary: 142.1 76.2% 36.3%; /* Green */
+    --primary-foreground: 355.7 100% 97.3%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 0 0% 95%; /* Off-white text */
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 0 0% 85%; /* Slightly darker off-white for muted text */
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 0 0% 95%; /* Off-white text */
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 85%; /* Darker border for better visibility */
+    --input: 214.3 31.8% 91.4%;
+    --ring: 142.1 76.2% 36.3%;
+    --radius: 1rem; /* More rounded, Apple-like */
+  }
+
+
+  body {
+    margin: 0;
+    font-family: 'Sora', 'Poppins', 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #2d5a5a; /* Dark teal/blue-grey like Duolingo */
+    color: hsl(var(--foreground));
+  }
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient-shift {
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  
+  .glass-strong {
+    background: hsl(var(--card)) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid hsl(var(--border) / 0.5) !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.1) !important;
+  }
+  
+  .glass-warm {
+    background: #fffef5; /* Even warmer, softer white */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 2px solid rgba(255, 255, 255, 0.6);
+  }
+  
+  .text-gradient {
+    background: linear-gradient(135deg, #58cc02 0%, #1cb0f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .bg-gradient-modern {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+  }
+}
+
